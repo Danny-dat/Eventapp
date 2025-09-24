@@ -1,5 +1,5 @@
 <?php
-// save_post.php
+
 
 require 'db_config.php';
 
