@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Newsbeitrag erfassen</title>
+    
     <style>
+        /* CSS für das Aussehen der Seite */
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 20px; background-color: #f4f4f9; color: #333; }
         .container { max-width: 600px; margin: auto; background: white; padding: 25px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
         h1 { color: #0056b3; font-size: 1.5em; }
@@ -27,30 +29,25 @@
     <div id="loading-view">
         <h1>Event wird geprüft...</h1>
     </div>
-
     <div id="content-view" class="hidden">
         <h1 id="event-title">Event-Titel wird geladen...</h1>
         <p>Teile deine Eindrücke und Fotos vom Event! Dein Beitrag wird gespeichert, auch wenn du gerade offline bist.</p>
-        
         <form id="news-form">
             <textarea id="news-text" placeholder="Dein Beitragstext..." rows="6" required></textarea>
-            
             <label for="news-photo">Foto auswählen oder aufnehmen:</label>
             <input type="file" id="news-photo" accept="image/*" required>
-            
             <input type="text" id="news-author" placeholder="Dein Name" required>
             <input type="email" id="news-email" placeholder="Deine E-Mail (optional)">
             <input type="tel" id="news-phone" placeholder="Deine Telefonnummer (optional)">
-            
             <button type="submit" id="submit-button">Beitrag absenden</button>
         </form>
     </div>
-
     <div id="loading-spinner" class="spinner hidden"></div>
     <div id="feedback-message" class="feedback hidden"></div>
 </div>
 
 <script>
+// Komplette Anwendungslogik in JavaScript
 // ===================================================================
 // 1. INITIALISIERUNG & GÜLTIGKEITSPRÜFUNG
 // ===================================================================
@@ -72,7 +69,7 @@ window.addEventListener('load', function() {
     const jetztTimestamp = Math.floor(Date.now() / 1000);
     
     if (jetztTimestamp > ablaufTimestamp) {
-        showFeedback("Dieses Event ist bereits abgelaufen. Es können keine Beiträge mehr eingereicht werden.", "error");
+        showFeedback("Dieses Event ist bereits abgelaufen.", "error");
         loadingView.classList.add('hidden');
     } else {
         document.getElementById('event-title').innerText = decodeURIComponent(eventTitel);
@@ -80,7 +77,6 @@ window.addEventListener('load', function() {
         contentView.classList.remove('hidden');
     }
 
-    // Beim Start versuchen, gespeicherte Beiträge zu senden
     syncOfflineBeitraege();
 });
 
@@ -94,7 +90,7 @@ document.getElementById('news-form').addEventListener('submit', async function(e
     const spinner = document.getElementById('loading-spinner');
     submitButton.disabled = true;
     spinner.classList.remove('hidden');
-    showFeedback('', 'success', true); // Altes Feedback zurücksetzen
+    showFeedback('', 'success', true);
 
     const beitrag = {
         eventId: new URLSearchParams(window.location.search).get('eventId'),
@@ -102,22 +98,28 @@ document.getElementById('news-form').addEventListener('submit', async function(e
         email: document.getElementById('news-email').value,
         telefon: document.getElementById('news-phone').value,
         text: document.getElementById('news-text').value,
-        erstelltAm: Math.floor(Date.now() / 1000),
     };
     
     const fotoDatei = document.getElementById('news-photo').files[0];
 
+    const fotoAlsBase64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = error => reject(error);
+        reader.readAsDataURL(fotoDatei);
+    });
+
     try {
         if (navigator.onLine) {
-            await sendeBeitragOnline(beitrag, fotoDatei);
+            await sendeBeitragOnline(beitrag, fotoAlsBase64);
             showFeedback("Vielen Dank! Dein Beitrag wurde erfolgreich übermittelt.", "success");
             document.getElementById('news-form').reset();
         } else {
-            throw new Error("Offline"); // Simuliere einen Fehler, um in den catch-Block zu springen
+            throw new Error("Offline");
         }
     } catch (error) {
         showFeedback("Du bist offline. Dein Beitrag wird gespeichert und gesendet, sobald wieder eine Verbindung besteht.", "success");
-        await speichereBeitragOffline(beitrag, fotoDatei);
+        await speichereBeitragOffline(beitrag, fotoAlsBase64);
         document.getElementById('news-form').reset();
     } finally {
         submitButton.disabled = false;
@@ -125,51 +127,33 @@ document.getElementById('news-form').addEventListener('submit', async function(e
     }
 });
 
-async function speichereBeitragOffline(beitrag, fotoDatei) {
-    // Foto in ein speicherbares Format (Base64) umwandeln
-    const fotoAlsBase64 = await new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result);
-        reader.readAsDataURL(fotoDatei);
-    });
-    
+async function speichereBeitragOffline(beitrag, fotoAlsBase64) {
     let offlineBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
     const offlineId = 'beitrag_' + Date.now();
-    offlineBeitraege.push({ id: offlineId, data: beitrag, foto: fotoAlsBase64 });
     
+    offlineBeitraege.push({ id: offlineId, data: beitrag, foto: fotoAlsBase64 });
     localStorage.setItem('offlineBeitraege', JSON.stringify(offlineBeitraege));
-    console.log('Beitrag offline gespeichert:', offlineId);
 }
 
 // ===================================================================
-// 3. DATEN-SYNCHRONISATION (ONLINE-SENDEN)
+// 3. DATEN-SYNCHRONISATION
 // ===================================================================
 async function syncOfflineBeitraege() {
     let offlineBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
     if (navigator.onLine && offlineBeitraege.length > 0) {
-        console.log(`Versuche, ${offlineBeitraege.length} Offline-Beiträge zu synchronisieren...`);
         showFeedback(`Sende ${offlineBeitraege.length} gespeicherte(n) Beitrag...`, "success");
 
-        for (const offlineBeitrag of [...offlineBeitraege]) { // Kopie der Liste, um sie sicher zu bearbeiten
+        for (const offlineBeitrag of [...offlineBeitraege]) {
             try {
-                // Base64 zurück in eine Datei für den Upload konvertieren
-                const fotoBlob = await (await fetch(offlineBeitrag.foto)).blob();
-                const fotoDatei = new File([fotoBlob], "offline-upload.jpg", { type: fotoBlob.type });
-
-                await sendeBeitragOnline(offlineBeitrag.data, fotoDatei);
-                
-                // Bei Erfolg aus dem Local Storage entfernen
+                await sendeBeitragOnline(offlineBeitrag.data, offlineBeitrag.foto);
                 let aktuelleBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
                 let aktualisierteListe = aktuelleBeitraege.filter(b => b.id !== offlineBeitrag.id);
                 localStorage.setItem('offlineBeitraege', JSON.stringify(aktualisierteListe));
-                console.log(`Beitrag ${offlineBeitrag.id} erfolgreich synchronisiert.`);
             } catch (error) {
-                console.error(`Synchronisierung von ${offlineBeitrag.id} fehlgeschlagen:`, error);
-                showFeedback("Einige gespeicherte Beiträge konnten nicht gesendet werden. Wir versuchen es später erneut.", "error");
-                break; // Schleife abbrechen, um nicht weitere Fehler zu provozieren
+                showFeedback("Einige gespeicherte Beiträge konnten nicht gesendet werden.", "error");
+                break;
             }
         }
-        // Feedback nach Abschluss der Synchronisation aktualisieren
         let restlicheBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
         if (restlicheBeitraege.length === 0) {
            showFeedback("Alle gespeicherten Beiträge wurden erfolgreich gesendet!", "success");
@@ -177,23 +161,26 @@ async function syncOfflineBeitraege() {
     }
 }
 
-async function sendeBeitragOnline(beitrag, fotoDatei) {
-    // --- HIER KOMMT DIE FIREBASE-LOGIK HIN ---
-    console.log("Sende Beitrag online:", beitrag);
-    console.log("Mit Foto:", fotoDatei.name);
+async function sendeBeitragOnline(beitrag, fotoAlsBase64) {
+    const datenFuerServer = { ...beitrag, fotoBase64: fotoAlsBase64 };
 
-    // **PLATZHALTER FÜR FIREBASE-INTEGRATION**
-    // 1. Foto zu Firebase Storage hochladen -> liefert fotoUrl
-    // 2. Beitragsobjekt mit fotoUrl in Firestore speichern
+    // WICHTIG: Passe diese URL an die Adresse deines Servers an!
+    const serverUrl = 'https://DEINE-DOMAIN.de/save-post';
 
-    // Simuliere eine Netzwerkverzögerung von 1.5 Sekunden
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    const finalerBeitrag = { ...beitrag, fotoUrl: "https://beispiel.de/simuliertes-foto.jpg" };
-    console.log("Finales Objekt für Datenbank:", finalerBeitrag);
-    
-    // Um einen Fehler zu testen, kannst du die folgende Zeile einkommentieren:
-    // throw new Error("Simulierter Upload-Fehler");
+    const response = await fetch(serverUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(datenFuerServer)
+    });
+
+    if (!response.ok) {
+        throw new Error('Netzwerkfehler oder Server nicht erreichbar.');
+    }
+
+    const ergebnis = await response.json();
+    if (ergebnis.status !== 'success') {
+        throw new Error(ergebnis.message || 'Unbekannter Serverfehler.');
+    }
 }
 
 // ===================================================================
@@ -210,7 +197,6 @@ function showFeedback(message, type, clear = false) {
     feedbackMessage.classList.remove('hidden');
 }
 
-// Event Listener, um bei Wiederverbindung die Synchronisation zu starten
 window.addEventListener('online', syncOfflineBeitraege);
 </script>
 
