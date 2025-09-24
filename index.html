@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Newsbeitrag erfassen</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 20px; background-color: #f4f4f9; color: #333; }
+        .container { max-width: 600px; margin: auto; background: white; padding: 25px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #0056b3; font-size: 1.5em; }
+        p { line-height: 1.6; }
+        input, textarea, button { width: 100%; padding: 12px; margin-bottom: 15px; border-radius: 5px; border: 1px solid #ccc; box-sizing: border-box; font-size: 1em; }
+        button { background-color: #007bff; color: white; font-weight: bold; border: none; cursor: pointer; transition: background-color 0.2s; }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #a0a0a0; cursor: not-allowed; }
+        .hidden { display: none; }
+        .feedback { padding: 15px; border-radius: 5px; margin-top: 20px; text-align: center; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .success { background-color: #d4edda; color: #155724; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #007bff; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div id="loading-view">
+        <h1>Event wird geprüft...</h1>
+    </div>
+
+    <div id="content-view" class="hidden">
+        <h1 id="event-title">Event-Titel wird geladen...</h1>
+        <p>Teile deine Eindrücke und Fotos vom Event! Dein Beitrag wird gespeichert, auch wenn du gerade offline bist.</p>
+        
+        <form id="news-form">
+            <textarea id="news-text" placeholder="Dein Beitragstext..." rows="6" required></textarea>
+            
+            <label for="news-photo">Foto auswählen oder aufnehmen:</label>
+            <input type="file" id="news-photo" accept="image/*" required>
+            
+            <input type="text" id="news-author" placeholder="Dein Name" required>
+            <input type="email" id="news-email" placeholder="Deine E-Mail (optional)">
+            <input type="tel" id="news-phone" placeholder="Deine Telefonnummer (optional)">
+            
+            <button type="submit" id="submit-button">Beitrag absenden</button>
+        </form>
+    </div>
+
+    <div id="loading-spinner" class="spinner hidden"></div>
+    <div id="feedback-message" class="feedback hidden"></div>
+</div>
+
+<script>
+// ===================================================================
+// 1. INITIALISIERUNG & GÜLTIGKEITSPRÜFUNG
+// ===================================================================
+window.addEventListener('load', function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const eventId = urlParams.get('eventId');
+    const eventTitel = urlParams.get('eventTitel');
+    const ablaufTimestamp = parseInt(urlParams.get('ablauf'), 10);
+
+    const loadingView = document.getElementById('loading-view');
+    const contentView = document.getElementById('content-view');
+
+    if (!eventId || !eventTitel || !ablaufTimestamp) {
+        showFeedback("Fehler: Event-Daten unvollständig. Bitte QR-Code erneut scannen.", "error");
+        loadingView.classList.add('hidden');
+        return;
+    }
+    
+    const jetztTimestamp = Math.floor(Date.now() / 1000);
+    
+    if (jetztTimestamp > ablaufTimestamp) {
+        showFeedback("Dieses Event ist bereits abgelaufen. Es können keine Beiträge mehr eingereicht werden.", "error");
+        loadingView.classList.add('hidden');
+    } else {
+        document.getElementById('event-title').innerText = decodeURIComponent(eventTitel);
+        loadingView.classList.add('hidden');
+        contentView.classList.remove('hidden');
+    }
+
+    // Beim Start versuchen, gespeicherte Beiträge zu senden
+    syncOfflineBeitraege();
+});
+
+// ===================================================================
+// 2. FORMULARVERARBEITUNG & OFFLINE-LOGIK
+// ===================================================================
+document.getElementById('news-form').addEventListener('submit', async function(event) {
+    event.preventDefault(); 
+    
+    const submitButton = document.getElementById('submit-button');
+    const spinner = document.getElementById('loading-spinner');
+    submitButton.disabled = true;
+    spinner.classList.remove('hidden');
+    showFeedback('', 'success', true); // Altes Feedback zurücksetzen
+
+    const beitrag = {
+        eventId: new URLSearchParams(window.location.search).get('eventId'),
+        autor: document.getElementById('news-author').value,
+        email: document.getElementById('news-email').value,
+        telefon: document.getElementById('news-phone').value,
+        text: document.getElementById('news-text').value,
+        erstelltAm: Math.floor(Date.now() / 1000),
+    };
+    
+    const fotoDatei = document.getElementById('news-photo').files[0];
+
+    try {
+        if (navigator.onLine) {
+            await sendeBeitragOnline(beitrag, fotoDatei);
+            showFeedback("Vielen Dank! Dein Beitrag wurde erfolgreich übermittelt.", "success");
+            document.getElementById('news-form').reset();
+        } else {
+            throw new Error("Offline"); // Simuliere einen Fehler, um in den catch-Block zu springen
+        }
+    } catch (error) {
+        showFeedback("Du bist offline. Dein Beitrag wird gespeichert und gesendet, sobald wieder eine Verbindung besteht.", "success");
+        await speichereBeitragOffline(beitrag, fotoDatei);
+        document.getElementById('news-form').reset();
+    } finally {
+        submitButton.disabled = false;
+        spinner.classList.add('hidden');
+    }
+});
+
+async function speichereBeitragOffline(beitrag, fotoDatei) {
+    // Foto in ein speicherbares Format (Base64) umwandeln
+    const fotoAlsBase64 = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.readAsDataURL(fotoDatei);
+    });
+    
+    let offlineBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
+    const offlineId = 'beitrag_' + Date.now();
+    offlineBeitraege.push({ id: offlineId, data: beitrag, foto: fotoAlsBase64 });
+    
+    localStorage.setItem('offlineBeitraege', JSON.stringify(offlineBeitraege));
+    console.log('Beitrag offline gespeichert:', offlineId);
+}
+
+// ===================================================================
+// 3. DATEN-SYNCHRONISATION (ONLINE-SENDEN)
+// ===================================================================
+async function syncOfflineBeitraege() {
+    let offlineBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
+    if (navigator.onLine && offlineBeitraege.length > 0) {
+        console.log(`Versuche, ${offlineBeitraege.length} Offline-Beiträge zu synchronisieren...`);
+        showFeedback(`Sende ${offlineBeitraege.length} gespeicherte(n) Beitrag...`, "success");
+
+        for (const offlineBeitrag of [...offlineBeitraege]) { // Kopie der Liste, um sie sicher zu bearbeiten
+            try {
+                // Base64 zurück in eine Datei für den Upload konvertieren
+                const fotoBlob = await (await fetch(offlineBeitrag.foto)).blob();
+                const fotoDatei = new File([fotoBlob], "offline-upload.jpg", { type: fotoBlob.type });
+
+                await sendeBeitragOnline(offlineBeitrag.data, fotoDatei);
+                
+                // Bei Erfolg aus dem Local Storage entfernen
+                let aktuelleBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
+                let aktualisierteListe = aktuelleBeitraege.filter(b => b.id !== offlineBeitrag.id);
+                localStorage.setItem('offlineBeitraege', JSON.stringify(aktualisierteListe));
+                console.log(`Beitrag ${offlineBeitrag.id} erfolgreich synchronisiert.`);
+            } catch (error) {
+                console.error(`Synchronisierung von ${offlineBeitrag.id} fehlgeschlagen:`, error);
+                showFeedback("Einige gespeicherte Beiträge konnten nicht gesendet werden. Wir versuchen es später erneut.", "error");
+                break; // Schleife abbrechen, um nicht weitere Fehler zu provozieren
+            }
+        }
+        // Feedback nach Abschluss der Synchronisation aktualisieren
+        let restlicheBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
+        if (restlicheBeitraege.length === 0) {
+           showFeedback("Alle gespeicherten Beiträge wurden erfolgreich gesendet!", "success");
+        }
+    }
+}
+
+async function sendeBeitragOnline(beitrag, fotoDatei) {
+    // --- HIER KOMMT DIE FIREBASE-LOGIK HIN ---
+    console.log("Sende Beitrag online:", beitrag);
+    console.log("Mit Foto:", fotoDatei.name);
+
+    // **PLATZHALTER FÜR FIREBASE-INTEGRATION**
+    // 1. Foto zu Firebase Storage hochladen -> liefert fotoUrl
+    // 2. Beitragsobjekt mit fotoUrl in Firestore speichern
+
+    // Simuliere eine Netzwerkverzögerung von 1.5 Sekunden
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    
+    const finalerBeitrag = { ...beitrag, fotoUrl: "https://beispiel.de/simuliertes-foto.jpg" };
+    console.log("Finales Objekt für Datenbank:", finalerBeitrag);
+    
+    // Um einen Fehler zu testen, kannst du die folgende Zeile einkommentieren:
+    // throw new Error("Simulierter Upload-Fehler");
+}
+
+// ===================================================================
+// HILFSFUNKTIONEN
+// ===================================================================
+function showFeedback(message, type, clear = false) {
+    const feedbackMessage = document.getElementById('feedback-message');
+    if (clear) {
+        feedbackMessage.classList.add('hidden');
+        return;
+    }
+    feedbackMessage.textContent = message;
+    feedbackMessage.className = `feedback ${type}`;
+    feedbackMessage.classList.remove('hidden');
+}
+
+// Event Listener, um bei Wiederverbindung die Synchronisation zu starten
+window.addEventListener('online', syncOfflineBeitraege);
+</script>
+
+</body>
+</html>
