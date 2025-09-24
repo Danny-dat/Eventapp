@@ -1,45 +1,31 @@
 <?php
 // save_post.php
 
-// 1. Deine Datenbank-Zugangsdaten
-// WICHTIG: Ändere dein Passwort, falls noch nicht geschehen!
-$servername = "database-5018680472.webspace-host.com";      // Diesen Wert bekommst du von deinem Hoster
-$username   = "dbu1596664";
-$password   = "Focke2212#"; // <-- Trage hier dein NEUES, sicheres Passwort ein!
-$dbname     = "dbs14794189";
+require 'db_config.php';
 
 header('Content-Type: application/json');
 
-// 2. Daten vom Frontend empfangen
-$json_data = file_get_contents('php://input');
-$data = json_decode($json_data);
+// Empfange die JSON-Daten vom Frontend
+$data = json_decode(file_get_contents('php://input'));
 
-if (!isset($data->eventId) || !isset($data->autor) || !isset($data->text)) {
+// Prüfe, ob alle notwendigen Felder vorhanden sind
+if (!isset($data->eventId) || !isset($data->eventTitel) || !isset($data->autor) || !isset($data->text)) {
     echo json_encode(['status' => 'error', 'message' => 'Fehlende Daten.']);
     exit;
 }
 
-// 3. Mit der Datenbank verbinden
-$conn = new mysqli($servername, $username, $password, $dbname);
-if ($conn->connect_error) {
-    echo json_encode(['status' => 'error', 'message' => 'Datenbankverbindung fehlgeschlagen.']);
-    exit;
-}
+$conn = new mysqli(DB_SERVER, DB_USERNAME, DB_PASSWORD, DB_NAME);
+if ($conn->connect_error) { /* Fehlerbehandlung */ }
 
-// 4. Daten sicher in die Datenbank einfügen
-$stmt = $conn->prepare("INSERT INTO event_news (eventId, autor, email, telefon, text, fotoBase64) VALUES (?, ?, ?, ?, ?, ?)");
-$stmt->bind_param("ssssss", $data->eventId, $data->autor, $data->email, $data->telefon, $data->text, $data->fotoBase64);
+// Bereite die SQL-Anweisung vor, um alle Daten zu speichern
+$stmt = $conn->prepare("INSERT INTO event_news (eventId, eventTitel, autor, email, telefon, text, fotoBase64) VALUES (?, ?, ?, ?, ?, ?, ?)");
+$stmt->bind_param("sssssss", $data->eventId, $data->eventTitel, $data->autor, $data->email, $data->telefon, $data->text, $data->fotoBase64);
 
-$response = [];
 if ($stmt->execute()) {
-    $response['status'] = 'success';
-    $response['message'] = 'Beitrag erfolgreich gespeichert.';
+    echo json_encode(['status' => 'success', 'message' => 'Beitrag erfolgreich gespeichert.']);
 } else {
-    $response['status'] = 'error';
-    $response['message'] = 'Fehler beim Speichern in der Datenbank.';
+    echo json_encode(['status' => 'error', 'message' => 'Fehler beim Speichern des Beitrags.']);
 }
-
-echo json_encode($response);
 
 $stmt->close();
 $conn->close();

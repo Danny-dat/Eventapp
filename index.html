@@ -46,8 +46,15 @@
             cursor: pointer; 
             transition: background-color 0.2s; 
         }
+        #rescan-button { 
+            background-color: #6c757d; 
+            margin-top: 10px;
+        }
         button:hover { 
             background-color: #0056b3; 
+        }
+        #rescan-button:hover { 
+            background-color: #5a6268; 
         }
         button:disabled { 
             background-color: #a0a0a0; 
@@ -90,25 +97,38 @@
 <div class="container">
     <div id="loading-view">
         <h1>Event wird geprüft...</h1>
+        <div id="loading-spinner" class="spinner"></div>
     </div>
+    
     <div id="content-view" class="hidden">
-        <h1 id="event-title">Event-Titel wird geladen...</h1>
+        <h1 id="event-title"></h1>
         <p>Teile deine Eindrücke und Fotos vom Event! Dein Beitrag wird gespeichert, auch wenn du gerade offline bist.</p>
         <form id="news-form">
             <textarea id="news-text" placeholder="Dein Beitragstext..." rows="6" required></textarea>
             <label for="news-photo">Foto auswählen oder aufnehmen:</label>
-            <input type="file" id="news-photo" accept="image/*" required>
+            <input type="file" id="news-photo" accept="image/*" capture="environment" required>
             <input type="text" id="news-author" placeholder="Dein Name" required>
             <input type="email" id="news-email" placeholder="Deine E-Mail (optional)">
             <input type="tel" id="news-phone" placeholder="Deine Telefonnummer (optional)">
             <button type="submit" id="submit-button">Beitrag absenden</button>
         </form>
     </div>
-    <div id="loading-spinner" class="spinner hidden"></div>
+
+    <div id="rescan-view" class="hidden">
+        <h1>Neues Event scannen</h1>
+        <p>Um ein anderes Event zu erfassen, schließe bitte dieses Browser-Fenster und scanne den neuen QR-Code mit deiner Kamera-App.</p>
+        <p style="text-align: center; font-size: 3em;">📲</p>
+    </div>
+    
     <div id="feedback-message" class="feedback hidden"></div>
+    
+    <button id="rescan-button" class="hidden" onclick="showRescanInstructions()">Neues Event scannen</button>
 </div>
 
 <script>
+// Globale Variable, um den offiziellen Event-Titel nach der Prüfung zu speichern
+let officialEventTitle = '';
+
 // ===================================================================
 // HILFSFUNKTION ZUR BILDVERKLEINERUNG (Löst QuotaExceededError)
 // ===================================================================
@@ -120,7 +140,6 @@ function resizeImage(file, maxWidth = 1920) {
             const img = new Image();
             img.src = event.target.result;
             img.onload = () => {
-                // Wenn das Bild bereits klein genug ist, nicht verändern
                 if (img.width <= maxWidth) {
                     resolve(img.src);
                     return;
@@ -131,50 +150,56 @@ function resizeImage(file, maxWidth = 1920) {
                 canvas.height = img.height * scaleFactor;
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                // Komprimiere das Bild als JPEG mit 85% Qualität
                 resolve(canvas.toDataURL('image/jpeg', 0.85));
             };
-            img.onerror = error => reject(error);
+            img.onerror = reject;
         };
-        reader.onerror = error => reject(error);
+        reader.onerror = reject;
     });
 }
 
 
 // ===================================================================
-// 1. INITIALISIERUNG & GÜLTIGKEITSPRÜFUNG
+// 1. SICHERE INITIALISIERUNG BEIM LADEN DER SEITE
 // ===================================================================
-window.addEventListener('load', function() {
+window.addEventListener('load', async function() {
     const urlParams = new URLSearchParams(window.location.search);
     const eventId = urlParams.get('eventId');
-    const eventTitel = urlParams.get('eventTitel');
-    const ablaufTimestamp = parseInt(urlParams.get('ablauf'), 10);
-
+    
     const loadingView = document.getElementById('loading-view');
     const contentView = document.getElementById('content-view');
-
-    if (!eventId || !eventTitel || !ablaufTimestamp) {
-        showFeedback("Fehler: Event-Daten unvollständig. Bitte QR-Code erneut scannen.", "error");
+    
+    if (!eventId) {
+        showFeedback("Fehler: Keine Event-ID im QR-Code gefunden.", "error");
         loadingView.classList.add('hidden');
         return;
     }
-    
-    const jetztTimestamp = Math.floor(Date.now() / 1000);
-    
-    if (jetztTimestamp > ablaufTimestamp) {
-        showFeedback("Dieses Event ist bereits abgelaufen.", "error");
-        loadingView.classList.add('hidden');
-    } else {
-        document.getElementById('event-title').innerText = decodeURIComponent(eventTitel);
-        loadingView.classList.add('hidden');
-        contentView.classList.remove('hidden');
-    }
 
-    syncOfflineBeitraege();
+    try {
+        const response = await fetch(`check_event.php?eventId=${encodeURIComponent(eventId)}`);
+        if (!response.ok) throw new Error("Server-Kommunikation fehlgeschlagen.");
+        
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            officialEventTitle = data.eventTitel;
+            document.getElementById('event-title').innerText = officialEventTitle;
+            loadingView.classList.add('hidden');
+            contentView.classList.remove('hidden');
+            syncOfflineBeitraege();
+        } else {
+            showFeedback(data.message, "error");
+            loadingView.classList.add('hidden');
+        }
+    } catch (error) {
+        showFeedback("Ein technischer Fehler ist aufgetreten. Bitte versuche es später erneut.", "error");
+        loadingView.classList.add('hidden');
+        console.error(error);
+    }
 });
 
 // ===================================================================
-// 2. FORMULARVERARBEITUNG & OFFLINE-LOGIK
+// 2. FORMULARVERARBEITUNG
 // ===================================================================
 document.getElementById('news-form').addEventListener('submit', async function(event) {
     event.preventDefault(); 
@@ -187,6 +212,7 @@ document.getElementById('news-form').addEventListener('submit', async function(e
 
     const beitrag = {
         eventId: new URLSearchParams(window.location.search).get('eventId'),
+        eventTitel: officialEventTitle,
         autor: document.getElementById('news-author').value,
         email: document.getElementById('news-email').value,
         telefon: document.getElementById('news-phone').value,
@@ -209,16 +235,13 @@ document.getElementById('news-form').addEventListener('submit', async function(e
             showFeedback("Vielen Dank! Dein Beitrag wurde erfolgreich übermittelt.", "success");
             document.getElementById('news-form').reset();
         } else {
-            // Wenn offline, direkt zum Speichern springen
             throw new Error("Offline");
         }
     } catch (error) {
         if (error.message === "Offline") {
             try {
-                // Erneutes resizeImage für den Fall, dass der Fehler woanders auftrat
-                const fotoDateiForOffline = document.getElementById('news-photo').files[0];
-                const fotoAlsBase64ForOffline = await resizeImage(fotoDateiForOffline);
-                await speichereBeitragOffline(beitrag, fotoAlsBase64ForOffline);
+                const fotoAlsBase64Offline = await resizeImage(document.getElementById('news-photo').files[0]);
+                await speichereBeitragOffline(beitrag, fotoAlsBase64Offline);
                 showFeedback("Du bist offline. Dein Beitrag wurde für den späteren Versand gespeichert.", "success");
                 document.getElementById('news-form').reset();
             } catch (offlineError) {
@@ -237,12 +260,9 @@ document.getElementById('news-form').addEventListener('submit', async function(e
 async function speichereBeitragOffline(beitrag, fotoAlsBase64) {
     try {
         let offlineBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
-        const offlineId = 'beitrag_' + Date.now();
-        
-        offlineBeitraege.push({ id: offlineId, data: beitrag, foto: fotoAlsBase64 });
+        offlineBeitraege.push({ id: 'beitrag_' + Date.now(), data: beitrag, foto: fotoAlsBase64 });
         localStorage.setItem('offlineBeitraege', JSON.stringify(offlineBeitraege));
     } catch (e) {
-        // Fängt den Fehler ab, wenn localStorage voll ist
         if (e.name === 'QuotaExceededError') {
             throw new Error("Der lokale Speicher ist voll.");
         }
@@ -261,14 +281,13 @@ async function syncOfflineBeitraege() {
         for (const offlineBeitrag of [...offlineBeitraege]) {
             try {
                 await sendeBeitragOnline(offlineBeitrag.data, offlineBeitrag.foto);
-                // Bei Erfolg aus der lokalen Liste entfernen
                 let aktuelleBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
                 let aktualisierteListe = aktuelleBeitraege.filter(b => b.id !== offlineBeitrag.id);
                 localStorage.setItem('offlineBeitraege', JSON.stringify(aktualisierteListe));
             } catch (error) {
-                showFeedback("Einige gespeicherte Beiträge konnten nicht gesendet werden. Wir versuchen es später erneut.", "error");
+                showFeedback("Einige gespeicherte Beiträge konnten nicht gesendet werden.", "error");
                 console.error("Fehler beim Synchronisieren:", error);
-                break; // Schleife abbrechen, um nicht weitere Fehler zu provozieren
+                break;
             }
         }
         let restlicheBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
@@ -280,9 +299,6 @@ async function syncOfflineBeitraege() {
 
 async function sendeBeitragOnline(beitrag, fotoAlsBase64) {
     const datenFuerServer = { ...beitrag, fotoBase64: fotoAlsBase64 };
-    
-    // Die URL zeigt auf deine PHP-Datei. Ein relativer Pfad ist am besten,
-    // wenn index.html und save_post.php im selben Verzeichnis liegen.
     const serverUrl = 'save_post.php'; 
 
     const response = await fetch(serverUrl, {
@@ -306,13 +322,30 @@ async function sendeBeitragOnline(beitrag, fotoAlsBase64) {
 // ===================================================================
 function showFeedback(message, type, clear = false) {
     const feedbackMessage = document.getElementById('feedback-message');
+    const rescanButton = document.getElementById('rescan-button');
+
     if (clear) {
         feedbackMessage.classList.add('hidden');
+        rescanButton.classList.add('hidden');
         return;
     }
     feedbackMessage.textContent = message;
     feedbackMessage.className = `feedback ${type}`;
     feedbackMessage.classList.remove('hidden');
+
+    if (type === 'error') {
+        rescanButton.classList.remove('hidden');
+    } else {
+        rescanButton.classList.add('hidden');
+    }
+}
+
+function showRescanInstructions() {
+    document.getElementById('loading-view').classList.add('hidden');
+    document.getElementById('content-view').classList.add('hidden');
+    document.getElementById('feedback-message').classList.add('hidden');
+    document.getElementById('rescan-button').classList.add('hidden');
+    document.getElementById('rescan-view').classList.remove('hidden');
 }
 
 window.addEventListener('online', syncOfflineBeitraege);
