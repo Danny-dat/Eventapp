@@ -6,90 +6,23 @@
     <title>Newsbeitrag erfassen</title>
     
     <style>
-        /* CSS für das Aussehen der Seite */
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
-            margin: 0; 
-            padding: 20px; 
-            background-color: #f4f4f9; 
-            color: #333; 
-        }
-        .container { 
-            max-width: 600px; 
-            margin: auto; 
-            background: white; 
-            padding: 25px; 
-            border-radius: 8px; 
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
-        }
-        h1 { 
-            color: #0056b3; 
-            font-size: 1.5em; 
-        }
-        p { 
-            line-height: 1.6; 
-        }
-        input, textarea, button { 
-            width: 100%; 
-            padding: 12px; 
-            margin-bottom: 15px; 
-            border-radius: 5px; 
-            border: 1px solid #ccc; 
-            box-sizing: border-box; 
-            font-size: 1em; 
-        }
-        button { 
-            background-color: #007bff; 
-            color: white; 
-            font-weight: bold; 
-            border: none; 
-            cursor: pointer; 
-            transition: background-color 0.2s; 
-        }
-        #rescan-button { 
-            background-color: #6c757d; 
-            margin-top: 10px;
-        }
-        button:hover { 
-            background-color: #0056b3; 
-        }
-        #rescan-button:hover { 
-            background-color: #5a6268; 
-        }
-        button:disabled { 
-            background-color: #a0a0a0; 
-            cursor: not-allowed; 
-        }
-        .hidden { 
-            display: none; 
-        }
-        .feedback { 
-            padding: 15px; 
-            border-radius: 5px; 
-            margin-top: 20px; 
-            text-align: center; 
-        }
-        .error { 
-            background-color: #f8d7da; 
-            color: #721c24; 
-        }
-        .success { 
-            background-color: #d4edda; 
-            color: #155724; 
-        }
-        .spinner { 
-            border: 4px solid #f3f3f3; 
-            border-top: 4px solid #007bff; 
-            border-radius: 50%; 
-            width: 30px; 
-            height: 30px; 
-            animation: spin 1s linear infinite; 
-            margin: 20px auto; 
-        }
-        @keyframes spin { 
-            0% { transform: rotate(0deg); } 
-            100% { transform: rotate(360deg); } 
-        }
+        /* CSS bleibt unverändert */
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 20px; background-color: #f4f4f9; color: #333; }
+        .container { max-width: 600px; margin: auto; background: white; padding: 25px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #0056b3; font-size: 1.5em; }
+        p { line-height: 1.6; }
+        input, textarea, button { width: 100%; padding: 12px; margin-bottom: 15px; border-radius: 5px; border: 1px solid #ccc; box-sizing: border-box; font-size: 1em; }
+        button { background-color: #007bff; color: white; font-weight: bold; border: none; cursor: pointer; transition: background-color 0.2s; }
+        #rescan-button { background-color: #6c757d; margin-top: 10px; }
+        button:hover { background-color: #0056b3; }
+        #rescan-button:hover { background-color: #5a6268; }
+        button:disabled { background-color: #a0a0a0; cursor: not-allowed; }
+        .hidden { display: none; }
+        .feedback { padding: 15px; border-radius: 5px; margin-top: 20px; text-align: center; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .success { background-color: #d4edda; color: #155724; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #007bff; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -105,8 +38,8 @@
         <p>Teile deine Eindrücke und Fotos vom Event! Dein Beitrag wird gespeichert, auch wenn du gerade offline bist.</p>
         <form id="news-form">
             <textarea id="news-text" placeholder="Dein Beitragstext..." rows="6" required></textarea>
-            <label for="news-photo">Foto auswählen oder aufnehmen:</label>
-            <input type="file" id="news-photo" accept="image/*" capture="environment" required>
+            <label for="news-photo">Bis zu 4 Fotos auswählen oder aufnehmen:</label>
+            <input type="file" id="news-photos" accept="image/*" multiple required>
             <input type="text" id="news-author" placeholder="Dein Name" required>
             <input type="email" id="news-email" placeholder="Deine E-Mail (optional)">
             <input type="tel" id="news-phone" placeholder="Deine Telefonnummer (optional)">
@@ -126,12 +59,169 @@
 </div>
 
 <script>
-// Globale Variable, um den offiziellen Event-Titel nach der Prüfung zu speichern
 let officialEventTitle = '';
 
+// HILFSFUNKTIONEN ZUR BILDVERARBEITUNG (bleiben gleich)
+// =======================================================
+function resizeImage(file, maxWidth = 1920) { /* ... unverändert ... */ }
+function dataURLtoBlob(dataurl) { /* ... unverändert ... */ }
+
+// SEITENINITIALISIERUNG (bleibt gleich)
+// =====================================
+window.addEventListener('load', async function() { /* ... unverändert ... */ });
+
+
+// FORMULARVERARBEITUNG (angepasst für mehrere Dateien)
+// ===================================================
+document.getElementById('news-form').addEventListener('submit', async function(event) {
+    event.preventDefault(); 
+    
+    const submitButton = document.getElementById('submit-button');
+    const spinner = document.getElementById('loading-spinner');
+    submitButton.disabled = true;
+    spinner.classList.remove('hidden');
+    showFeedback('', 'success', true);
+
+    const beitrag = {
+        eventId: new URLSearchParams(window.location.search).get('eventId'),
+        eventTitel: officialEventTitle,
+        autor: document.getElementById('news-author').value,
+        email: document.getElementById('news-email').value,
+        telefon: document.getElementById('news-phone').value,
+        text: document.getElementById('news-text').value,
+    };
+    
+    const fotoDateien = document.getElementById('news-photos').files;
+    if (fotoDateien.length === 0) {
+        showFeedback("Bitte wähle mindestens ein Foto aus.", "error");
+        submitButton.disabled = false;
+        spinner.classList.add('hidden');
+        return;
+    }
+
+    if (fotoDateien.length > 4) {
+        showFeedback("Du kannst maximal 4 Fotos hochladen.", "error");
+        submitButton.disabled = false;
+        spinner.classList.add('hidden');
+        return;
+    }
+
+    try {
+        // Verarbeite alle ausgewählten Bilder
+        const resizePromises = Array.from(fotoDateien).map(file => resizeImage(file));
+        const fotosAlsBase64 = await Promise.all(resizePromises);
+
+        if (navigator.onLine) {
+            const fotosAlsBlobs = fotosAlsBase64.map(b64 => dataURLtoBlob(b64));
+            await sendeBeitragOnline(beitrag, fotosAlsBlobs);
+            showFeedback("Vielen Dank! Dein Beitrag wurde erfolgreich übermittelt.", "success");
+            document.getElementById('news-form').reset();
+        } else {
+            throw new Error("Offline");
+        }
+    } catch (error) {
+        if (error.message === "Offline") {
+            try {
+                // Für Offline-Speicherung bleiben wir bei Base64
+                const resizePromisesOffline = Array.from(document.getElementById('news-photos').files).map(file => resizeImage(file));
+                const fotosAlsBase64Offline = await Promise.all(resizePromisesOffline);
+                await speichereBeitragOffline(beitrag, fotosAlsBase64Offline);
+                showFeedback("Du bist offline. Dein Beitrag wurde für den späteren Versand gespeichert.", "success");
+                document.getElementById('news-form').reset();
+            } catch (offlineError) {
+                 showFeedback("Fehler beim Offline-Speichern: " + offlineError.message, "error");
+            }
+        } else {
+             showFeedback("Ein Fehler ist aufgetreten: " + error.message, "error");
+        }
+        console.error("Fehler bei der Beitragsverarbeitung:", error);
+    } finally {
+        submitButton.disabled = false;
+        spinner.classList.add('hidden');
+    }
+});
+
+
+// DATEN-SYNCHRONISATION & ONLINE SENDEN (angepasst für mehrere Fotos)
 // ===================================================================
-// HILFSFUNKTION ZUR BILDVERKLEINERUNG (Löst QuotaExceededError)
-// ===================================================================
+async function speichereBeitragOffline(beitrag, fotosAlsBase64) {
+    try {
+        let offlineBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
+        // Speichere das Array mit den Base64-Strings
+        offlineBeitraege.push({ id: 'beitrag_' + Date.now(), data: beitrag, fotos: fotosAlsBase64 });
+        localStorage.setItem('offlineBeitraege', JSON.stringify(offlineBeitraege));
+    } catch (e) {
+        if (e.name === 'QuotaExceededError') {
+            throw new Error("Der lokale Speicher ist voll. Bitte sende zuerst die gespeicherten Beiträge.");
+        }
+        throw e;
+    }
+}
+
+async function syncOfflineBeitraege() {
+    let offlineBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
+    if (navigator.onLine && offlineBeitraege.length > 0) {
+        showFeedback(`Sende ${offlineBeitraege.length} gespeicherte(n) Beitrag...`, "success");
+
+        for (const offlineBeitrag of [...offlineBeitraege]) {
+            try {
+                // Konvertiere das Array von Base64-Strings in ein Array von Blobs
+                const fotosAlsBlobs = offlineBeitrag.fotos.map(b64 => dataURLtoBlob(b64));
+                await sendeBeitragOnline(offlineBeitrag.data, fotosAlsBlobs);
+                
+                let aktuelleBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
+                let aktualisierteListe = aktuelleBeitraege.filter(b => b.id !== offlineBeitrag.id);
+                localStorage.setItem('offlineBeitraege', JSON.stringify(aktualisierteListe));
+            } catch (error) {
+                showFeedback("Einige gespeicherte Beiträge konnten nicht gesendet werden.", "error");
+                console.error("Fehler beim Synchronisieren:", error);
+                break;
+            }
+        }
+        let restlicheBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
+        if (restlicheBeitraege.length === 0) {
+           showFeedback("Alle gespeicherten Beiträge wurden erfolgreich gesendet!", "success");
+        }
+    }
+}
+
+async function sendeBeitragOnline(beitrag, fotosAlsBlobs) {
+    const formData = new FormData();
+
+    // Füge alle Textdaten hinzu
+    for (const key in beitrag) {
+        formData.append(key, beitrag[key]);
+    }
+    
+    // Füge jede Bild-Blob-Datei hinzu. Wichtig ist 'fotos[]', damit PHP es als Array erkennt.
+    fotosAlsBlobs.forEach((blob, index) => {
+        formData.append('fotos[]', blob, `foto${index}.jpg`);
+    });
+
+    const serverUrl = 'save_post.php'; 
+    const response = await fetch(serverUrl, {
+        method: 'POST',
+        body: formData
+    });
+
+    if (!response.ok) {
+        throw new Error('Server antwortet mit einem Fehler (Status: ' + response.status + ')');
+    }
+
+    const ergebnis = await response.json();
+    if (ergebnis.status !== 'success') {
+        throw new Error(ergebnis.message || 'Unbekannter Serverfehler.');
+    }
+}
+
+// RESTLICHE HILFSFUNKTIONEN (bleiben gleich)
+// ==========================================
+function showFeedback(message, type, clear = false) { /* ... unverändert ... */ }
+function showRescanInstructions() { /* ... unverändert ... */ }
+window.addEventListener('online', syncOfflineBeitraege);
+
+
+// Implementierung der fehlenden Funktionen (damit der Code kopierbar ist)
 function resizeImage(file, maxWidth = 1920) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -158,29 +248,32 @@ function resizeImage(file, maxWidth = 1920) {
     });
 }
 
+function dataURLtoBlob(dataurl) {
+    const arr = dataurl.split(',');
+    const mime = arr[0].match(/:(.*?);/)[1];
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+        u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new Blob([u8arr], { type: mime });
+}
 
-// ===================================================================
-// 1. SICHERE INITIALISIERUNG BEIM LADEN DER SEITE
-// ===================================================================
 window.addEventListener('load', async function() {
     const urlParams = new URLSearchParams(window.location.search);
     const eventId = urlParams.get('eventId');
-    
     const loadingView = document.getElementById('loading-view');
     const contentView = document.getElementById('content-view');
-    
     if (!eventId) {
         showFeedback("Fehler: Keine Event-ID im QR-Code gefunden.", "error");
         loadingView.classList.add('hidden');
         return;
     }
-
     try {
         const response = await fetch(`check_event.php?eventId=${encodeURIComponent(eventId)}`);
         if (!response.ok) throw new Error("Server-Kommunikation fehlgeschlagen.");
-        
         const data = await response.json();
-        
         if (data.status === 'success') {
             officialEventTitle = data.eventTitel;
             document.getElementById('event-title').innerText = officialEventTitle;
@@ -198,132 +291,9 @@ window.addEventListener('load', async function() {
     }
 });
 
-// ===================================================================
-// 2. FORMULARVERARBEITUNG
-// ===================================================================
-document.getElementById('news-form').addEventListener('submit', async function(event) {
-    event.preventDefault(); 
-    
-    const submitButton = document.getElementById('submit-button');
-    const spinner = document.getElementById('loading-spinner');
-    submitButton.disabled = true;
-    spinner.classList.remove('hidden');
-    showFeedback('', 'success', true);
-
-    const beitrag = {
-        eventId: new URLSearchParams(window.location.search).get('eventId'),
-        eventTitel: officialEventTitle,
-        autor: document.getElementById('news-author').value,
-        email: document.getElementById('news-email').value,
-        telefon: document.getElementById('news-phone').value,
-        text: document.getElementById('news-text').value,
-    };
-    
-    const fotoDatei = document.getElementById('news-photo').files[0];
-    if (!fotoDatei) {
-        showFeedback("Bitte wähle ein Foto aus.", "error");
-        submitButton.disabled = false;
-        spinner.classList.add('hidden');
-        return;
-    }
-
-    try {
-        const fotoAlsBase64 = await resizeImage(fotoDatei);
-
-        if (navigator.onLine) {
-            await sendeBeitragOnline(beitrag, fotoAlsBase64);
-            showFeedback("Vielen Dank! Dein Beitrag wurde erfolgreich übermittelt.", "success");
-            document.getElementById('news-form').reset();
-        } else {
-            throw new Error("Offline");
-        }
-    } catch (error) {
-        if (error.message === "Offline") {
-            try {
-                const fotoAlsBase64Offline = await resizeImage(document.getElementById('news-photo').files[0]);
-                await speichereBeitragOffline(beitrag, fotoAlsBase64Offline);
-                showFeedback("Du bist offline. Dein Beitrag wurde für den späteren Versand gespeichert.", "success");
-                document.getElementById('news-form').reset();
-            } catch (offlineError) {
-                 showFeedback("Fehler beim Offline-Speichern: " + offlineError.message, "error");
-            }
-        } else {
-             showFeedback("Ein Fehler ist aufgetreten: " + error.message, "error");
-        }
-        console.error("Fehler bei der Beitragsverarbeitung:", error);
-    } finally {
-        submitButton.disabled = false;
-        spinner.classList.add('hidden');
-    }
-});
-
-async function speichereBeitragOffline(beitrag, fotoAlsBase64) {
-    try {
-        let offlineBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
-        offlineBeitraege.push({ id: 'beitrag_' + Date.now(), data: beitrag, foto: fotoAlsBase64 });
-        localStorage.setItem('offlineBeitraege', JSON.stringify(offlineBeitraege));
-    } catch (e) {
-        if (e.name === 'QuotaExceededError') {
-            throw new Error("Der lokale Speicher ist voll.");
-        }
-        throw e;
-    }
-}
-
-// ===================================================================
-// 3. DATEN-SYNCHRONISATION & ONLINE SENDEN
-// ===================================================================
-async function syncOfflineBeitraege() {
-    let offlineBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
-    if (navigator.onLine && offlineBeitraege.length > 0) {
-        showFeedback(`Sende ${offlineBeitraege.length} gespeicherte(n) Beitrag...`, "success");
-
-        for (const offlineBeitrag of [...offlineBeitraege]) {
-            try {
-                await sendeBeitragOnline(offlineBeitrag.data, offlineBeitrag.foto);
-                let aktuelleBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
-                let aktualisierteListe = aktuelleBeitraege.filter(b => b.id !== offlineBeitrag.id);
-                localStorage.setItem('offlineBeitraege', JSON.stringify(aktualisierteListe));
-            } catch (error) {
-                showFeedback("Einige gespeicherte Beiträge konnten nicht gesendet werden.", "error");
-                console.error("Fehler beim Synchronisieren:", error);
-                break;
-            }
-        }
-        let restlicheBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
-        if (restlicheBeitraege.length === 0) {
-           showFeedback("Alle gespeicherten Beiträge wurden erfolgreich gesendet!", "success");
-        }
-    }
-}
-
-async function sendeBeitragOnline(beitrag, fotoAlsBase64) {
-    const datenFuerServer = { ...beitrag, fotoBase64: fotoAlsBase64 };
-    const serverUrl = 'save_post.php'; 
-
-    const response = await fetch(serverUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(datenFuerServer)
-    });
-
-    if (!response.ok) {
-        throw new Error('Server antwortet mit einem Fehler (Status: ' + response.status + ')');
-    }
-
-    const ergebnis = await response.json();
-    if (ergebnis.status !== 'success') {
-        throw new Error(ergebnis.message || 'Unbekannter Serverfehler.');
-    }
-}
-
-// ===================================================================
-// HILFSFUNKTIONEN
-// ===================================================================
 function showFeedback(message, type, clear = false) {
     const feedbackMessage = document.getElementById('feedback-message');
     const rescanButton = document.getElementById('rescan-button');
-
     if (clear) {
         feedbackMessage.classList.add('hidden');
         rescanButton.classList.add('hidden');
@@ -332,7 +302,6 @@ function showFeedback(message, type, clear = false) {
     feedbackMessage.textContent = message;
     feedbackMessage.className = `feedback ${type}`;
     feedbackMessage.classList.remove('hidden');
-
     if (type === 'error') {
         rescanButton.classList.remove('hidden');
     } else {
@@ -348,7 +317,6 @@ function showRescanInstructions() {
     document.getElementById('rescan-view').classList.remove('hidden');
 }
 
-window.addEventListener('online', syncOfflineBeitraege);
 </script>
 
 </body>
