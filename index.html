@@ -164,8 +164,8 @@ async function syncOfflineBeitraege() {
 async function sendeBeitragOnline(beitrag, fotoAlsBase64) {
     const datenFuerServer = { ...beitrag, fotoBase64: fotoAlsBase64 };
 
-    // WICHTIG: Passe diese URL an die Adresse deines Servers an!
-    const serverUrl = 'https://DEINE-DOMAIN.de/save-post';
+    // WICHTIG: Passe diese URL an die exakte Adresse deines Servers an!
+    const serverUrl = 'http://eventapp.focketest.info:3000/save-post'; // Beispiel mit Port 3000
 
     const response = await fetch(serverUrl, {
         method: 'POST',
