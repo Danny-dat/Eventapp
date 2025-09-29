@@ -1,12 +1,10 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Newsbeitrag erfassen</title>
-    
     <style>
-        /* CSS bleibt unverändert */
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 20px; background-color: #f4f4f9; color: #333; }
         .container { max-width: 600px; margin: auto; background: white; padding: 25px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
         h1 { color: #0056b3; font-size: 1.5em; }
@@ -23,23 +21,48 @@
         .success { background-color: #d4edda; color: #155724; }
         .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #007bff; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Kamera CSS */
+        .photo-controls { display: flex; gap: 10px; }
+        #live-cam-button { background-color: #28a745; }
+        #live-cam-button:hover { background-color: #218838; }
+        #camera-view { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.9); z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 10px; box-sizing: border-box; }
+        #camera-view.hidden { display: none; }
+        #camera-stream { width: 100%; max-width: 600px; border-radius: 8px; background: #333; }
+        #photo-preview-container { display: flex; gap: 10px; margin-top: 15px; padding: 10px; flex-wrap: wrap; justify-content: center; overflow-y: auto; max-height: 120px; }
+        .photo-preview { width: 80px; height: 80px; object-fit: cover; border: 3px solid transparent; border-radius: 5px; cursor: pointer; }
+        .photo-preview.selected { border-color: #007bff; }
+        #camera-view button { max-width: 200px; margin-top: 15px; }
+        #capture-button { font-size: 1.2em; padding: 15px; }
+        .camera-buttons { display: flex; gap: 10px; }
+        #thumbnail-container { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+        .thumbnail { width: 70px; height: 70px; object-fit: cover; border-radius: 5px; }
+        .hint { font-size: .9em; color: #666; margin-top: -8px; margin-bottom: 12px; }
     </style>
 </head>
 <body>
-
 <div class="container">
     <div id="loading-view">
         <h1>Event wird geprüft...</h1>
         <div id="loading-spinner" class="spinner"></div>
     </div>
-    
+
     <div id="content-view" class="hidden">
         <h1 id="event-title"></h1>
         <p>Teile deine Eindrücke und Fotos vom Event! Dein Beitrag wird gespeichert, auch wenn du gerade offline bist.</p>
+
         <form id="news-form">
             <textarea id="news-text" placeholder="Dein Beitragstext..." rows="6" required></textarea>
-            <label for="news-photo">Bis zu 4 Fotos auswählen oder aufnehmen:</label>
-            <input type="file" id="news-photos" accept="image/*" multiple required>
+
+            <label for="news-photos">Bis zu 4 Fotos auswählen oder aufnehmen:</label>
+            <div class="photo-controls">
+                <input type="file" id="news-photos" accept="image/*" multiple>
+                <button type="button" id="live-cam-button">Live Cam</button>
+            </div>
+            <div class="hint" id="camera-hint">Tipp: Live Cam funktioniert nur in sicheren Browsern (HTTPS) oder localhost.</div>
+
+            <div id="thumbnail-container"></div>
+
             <input type="text" id="news-author" placeholder="Dein Name" required>
             <input type="email" id="news-email" placeholder="Deine E-Mail (optional)">
             <input type="tel" id="news-phone" placeholder="Deine Telefonnummer (optional)">
@@ -47,35 +70,266 @@
         </form>
     </div>
 
+    <div id="camera-view" class="hidden" aria-hidden="true">
+        <video id="camera-stream" autoplay playsinline></video>
+        <div id="photo-preview-container"></div>
+        <p id="camera-feedback" style="color: white; text-align: center;"></p>
+        <button type="button" id="capture-button">Foto machen</button>
+        <div class="camera-buttons">
+            <button type="button" id="confirm-selection-button">Auswahl bestätigen</button>
+            <button type="button" id="close-camera-button" style="background-color: #dc3545;">Abbrechen</button>
+        </div>
+    </div>
+
     <div id="rescan-view" class="hidden">
         <h1>Neues Event scannen</h1>
         <p>Um ein anderes Event zu erfassen, schließe bitte dieses Browser-Fenster und scanne den neuen QR-Code mit deiner Kamera-App.</p>
         <p style="text-align: center; font-size: 3em;">📲</p>
     </div>
-    
+
     <div id="feedback-message" class="feedback hidden"></div>
-    
+
     <button id="rescan-button" class="hidden" onclick="showRescanInstructions()">Neues Event scannen</button>
 </div>
 
 <script>
+/* -----------------------
+   Variablen & State
+   ----------------------- */
 let officialEventTitle = '';
+let capturedImages = []; // Array<File> von bestätigten Kameraaufnahmen
+let cameraStream = null;
 
-// HILFSFUNKTIONEN ZUR BILDVERARBEITUNG (bleiben gleich)
-// =======================================================
-function resizeImage(file, maxWidth = 1920) { /* ... unverändert ... */ }
-function dataURLtoBlob(dataurl) { /* ... unverändert ... */ }
+/* -----------------------
+   Hilfsfunktionen
+   ----------------------- */
+function showFeedback(message, type='error', clear=false) {
+    const feedbackMessage = document.getElementById('feedback-message');
+    const rescanButton = document.getElementById('rescan-button');
+    if (clear) {
+        feedbackMessage.classList.add('hidden');
+        rescanButton.classList.add('hidden');
+        return;
+    }
+    feedbackMessage.textContent = message;
+    feedbackMessage.className = `feedback ${type}`;
+    feedbackMessage.classList.remove('hidden');
+    if (type === 'error') rescanButton.classList.remove('hidden'); else rescanButton.classList.add('hidden');
+}
 
-// SEITENINITIALISIERUNG (bleibt gleich)
-// =====================================
-window.addEventListener('load', async function() { /* ... unverändert ... */ });
+function dataURLtoBlob(dataurl) {
+    const arr = dataurl.split(',');
+    const mime = arr[0].match(/:(.*?);/)[1];
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) { u8arr[n] = bstr.charCodeAt(n); }
+    return new Blob([u8arr], { type: mime });
+}
 
+function resizeImage(file, maxWidth = 1920) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target.result;
+            img.onload = () => {
+                if (img.width <= maxWidth) { resolve(img.src); return; }
+                const canvas = document.createElement('canvas');
+                const scaleFactor = maxWidth / img.width;
+                canvas.width = maxWidth;
+                canvas.height = img.height * scaleFactor;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                resolve(canvas.toDataURL('image/jpeg', 0.85));
+            };
+            img.onerror = () => reject(new Error('Bild konnte nicht geladen werden.'));
+        };
+        reader.onerror = () => reject(new Error('Dateilesefehler.'));
+    });
+}
 
-// FORMULARVERARBEITUNG (angepasst für mehrere Dateien)
-// ===================================================
+/* -----------------------
+   Kamera-Feature-Detect + Start
+   ----------------------- */
+function detectCameraSupport() {
+    const supportsMedia = !!(navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function');
+    const secure = window.isSecureContext || location.protocol === 'https:' || location.hostname === 'localhost';
+    return { supportsMedia, secure, ua: navigator.userAgent || 'unknown' };
+}
+
+(function initCameraAvailability() {
+    const check = detectCameraSupport();
+    const liveBtn = document.getElementById('live-cam-button');
+    const hint = document.getElementById('camera-hint');
+    console.info('Camera detect:', check);
+    if (!check.secure) {
+        showFeedback('Hinweis: Live-Cam benötigt eine sichere Verbindung (HTTPS) oder localhost. Live-Cam deaktiviert.', 'error', false);
+        if (liveBtn) liveBtn.disabled = true;
+        hint.textContent = 'Live Cam: HTTPS oder localhost erforderlich.';
+    } else if (!check.supportsMedia) {
+        showFeedback('Hinweis: Dieser Browser/WebView unterstützt keine Kamera-API (mediaDevices). Live-Cam deaktiviert.', 'error', false);
+        if (liveBtn) liveBtn.disabled = true;
+        hint.textContent = 'Live Cam: mediaDevices nicht verfügbar (Browser/WebView eingeschränkt).';
+    } else {
+        if (liveBtn) liveBtn.disabled = false;
+        hint.textContent = 'Live Cam: Tippe, um die Kamera zu öffnen.';
+        showFeedback('', 'success', true); // clear any previous message
+    }
+})();
+
+async function startCamera() {
+    const check = detectCameraSupport();
+    if (!check.secure) {
+        showFeedback("Die Kamera benötigt eine sichere Verbindung (HTTPS) oder localhost. Bitte Seite über HTTPS öffnen.", "error");
+        console.error("Seite nicht sicher (HTTPS fehlt). location.protocol:", location.protocol);
+        return;
+    }
+    if (!check.supportsMedia) {
+        showFeedback("Dein Browser/WebView unterstützt leider keine Kamera-API (mediaDevices). Bitte Browser wechseln.", "error");
+        console.error("mediaDevices/getUserMedia nicht vorhanden:", navigator.mediaDevices, "userAgent:", check.ua);
+        return;
+    }
+
+    const videoElement = document.getElementById('camera-stream');
+    const cameraView = document.getElementById('camera-view');
+    try {
+        const preferredConstraints = { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } };
+        const fallbackConstraints = { video: true };
+
+        let stream = null;
+        try {
+            stream = await navigator.mediaDevices.getUserMedia(preferredConstraints);
+        } catch (errPreferred) {
+            console.warn("Preferred constraints failed, trying fallback. Error:", errPreferred);
+            stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+        }
+
+        cameraStream = stream;
+        videoElement.srcObject = stream;
+        // some browsers require play() call
+        try { await videoElement.play(); } catch (e) { /* ignore autoplay policies */ }
+        cameraView.classList.remove('hidden');
+        cameraView.setAttribute('aria-hidden', 'false');
+        document.getElementById('photo-preview-container').innerHTML = '';
+        updateCameraFeedback();
+    } catch (err) {
+        console.error("Kamera-Fehler (startCamera):", err);
+        if (err && err.name === 'NotAllowedError' || err && err.name === 'PermissionDeniedError') {
+            showFeedback("Zugriff auf die Kamera wurde verweigert. Bitte in den Seiteneinstellungen erlauben.", "error");
+        } else if (err && (err.name === 'NotFoundError' || err.name === 'OverconstrainedError')) {
+            showFeedback("Keine passende Kamera gefunden oder Constraints nicht erfüllbar.", "error");
+        } else {
+            showFeedback("Kamera konnte nicht gestartet werden. Siehe Konsole für Details.", "error");
+        }
+    }
+}
+
+/* -----------------------
+   Kamera UI-Funktionen
+   ----------------------- */
+function closeCamera() {
+    if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+        cameraStream = null;
+    }
+    const cameraView = document.getElementById('camera-view');
+    cameraView.classList.add('hidden');
+    cameraView.setAttribute('aria-hidden', 'true');
+}
+
+function capturePhoto() {
+    const previewContainer = document.getElementById('photo-preview-container');
+    if (previewContainer.children.length >= 10) {
+        updateCameraFeedback("Maximum von 10 Fotos erreicht.");
+        return;
+    }
+    const video = document.getElementById('camera-stream');
+    if (!video || !video.videoWidth) {
+        updateCameraFeedback("Video nicht bereit. Warte kurz.");
+        return;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+
+    const imageUrl = canvas.toDataURL('image/jpeg', 0.9);
+    const img = document.createElement('img');
+    img.src = imageUrl;
+    img.classList.add('photo-preview');
+    img.dataset.blob = imageUrl; // base64 für spätere Umwandlung
+    img.addEventListener('click', togglePhotoSelection);
+    previewContainer.appendChild(img);
+    updateCameraFeedback();
+}
+
+function togglePhotoSelection(event) {
+    const selectedCount = document.querySelectorAll('.photo-preview.selected').length;
+    const img = event.target;
+    if (img.classList.contains('selected')) {
+        img.classList.remove('selected');
+    } else {
+        if (selectedCount < 4) img.classList.add('selected');
+    }
+    updateCameraFeedback();
+}
+
+function updateCameraFeedback(extraMessage = '') {
+    const previewContainer = document.getElementById('photo-preview-container');
+    const selectedCount = document.querySelectorAll('.photo-preview.selected').length;
+    const totalCount = previewContainer.children.length;
+    let message = `Aufgenommen: ${totalCount}/10 | Ausgewählt: ${selectedCount}/4.`;
+    if (extraMessage) message += ` ${extraMessage}`;
+    document.getElementById('camera-feedback').innerText = message;
+}
+
+function confirmPhotoSelection() {
+    const selectedPhotos = document.querySelectorAll('.photo-preview.selected');
+    const files = Array.from(selectedPhotos).map(img => {
+        const blob = dataURLtoBlob(img.dataset.blob);
+        const fileName = `cam_${Date.now()}_${Math.random().toString(36).slice(2,9)}.jpg`;
+        return new File([blob], fileName, { type: 'image/jpeg' });
+    });
+    // replace capturedImages with these confirmed files
+    capturedImages = files;
+    closeCamera();
+    updateThumbnails();
+}
+
+/* -----------------------
+   Thumbnails & file-input handling
+   ----------------------- */
+document.getElementById('news-photos').addEventListener('change', updateThumbnails);
+
+function updateThumbnails() {
+    const container = document.getElementById('thumbnail-container');
+    container.innerHTML = '';
+    const fileInputFiles = Array.from(document.getElementById('news-photos').files || []);
+    const allFiles = [...fileInputFiles, ...capturedImages];
+
+    allFiles.forEach(file => {
+        const thumb = document.createElement('img');
+        thumb.classList.add('thumbnail');
+        try {
+            thumb.src = URL.createObjectURL(file);
+        } catch (e) {
+            // falls file bereits DataURL ist, versuche src direkt
+            if (file instanceof Blob && !(file instanceof File)) {
+                // nothing
+            }
+        }
+        container.appendChild(thumb);
+    });
+}
+
+/* -----------------------
+   Formular-Handling (Upload + Offline)
+   ----------------------- */
 document.getElementById('news-form').addEventListener('submit', async function(event) {
-    event.preventDefault(); 
-    
+    event.preventDefault();
     const submitButton = document.getElementById('submit-button');
     const spinner = document.getElementById('loading-spinner');
     submitButton.disabled = true;
@@ -90,16 +344,18 @@ document.getElementById('news-form').addEventListener('submit', async function(e
         telefon: document.getElementById('news-phone').value,
         text: document.getElementById('news-text').value,
     };
-    
-    const fotoDateien = document.getElementById('news-photos').files;
-    if (fotoDateien.length === 0) {
+
+    const fileInputFiles = Array.from(document.getElementById('news-photos').files || []);
+    // capturedImages are confirmed File objects
+    const alleFotos = [...fileInputFiles, ...capturedImages];
+
+    if (alleFotos.length === 0) {
         showFeedback("Bitte wähle mindestens ein Foto aus.", "error");
         submitButton.disabled = false;
         spinner.classList.add('hidden');
         return;
     }
-
-    if (fotoDateien.length > 4) {
+    if (alleFotos.length > 4) {
         showFeedback("Du kannst maximal 4 Fotos hochladen.", "error");
         submitButton.disabled = false;
         spinner.classList.add('hidden');
@@ -107,8 +363,7 @@ document.getElementById('news-form').addEventListener('submit', async function(e
     }
 
     try {
-        // Verarbeite alle ausgewählten Bilder
-        const resizePromises = Array.from(fotoDateien).map(file => resizeImage(file));
+        const resizePromises = alleFotos.map(file => resizeImage(file));
         const fotosAlsBase64 = await Promise.all(resizePromises);
 
         if (navigator.onLine) {
@@ -116,23 +371,26 @@ document.getElementById('news-form').addEventListener('submit', async function(e
             await sendeBeitragOnline(beitrag, fotosAlsBlobs);
             showFeedback("Vielen Dank! Dein Beitrag wurde erfolgreich übermittelt.", "success");
             document.getElementById('news-form').reset();
+            capturedImages = [];
+            updateThumbnails();
         } else {
             throw new Error("Offline");
         }
     } catch (error) {
         if (error.message === "Offline") {
             try {
-                // Für Offline-Speicherung bleiben wir bei Base64
-                const resizePromisesOffline = Array.from(document.getElementById('news-photos').files).map(file => resizeImage(file));
+                const resizePromisesOffline = alleFotos.map(file => resizeImage(file));
                 const fotosAlsBase64Offline = await Promise.all(resizePromisesOffline);
                 await speichereBeitragOffline(beitrag, fotosAlsBase64Offline);
                 showFeedback("Du bist offline. Dein Beitrag wurde für den späteren Versand gespeichert.", "success");
                 document.getElementById('news-form').reset();
+                capturedImages = [];
+                updateThumbnails();
             } catch (offlineError) {
-                 showFeedback("Fehler beim Offline-Speichern: " + offlineError.message, "error");
+                showFeedback("Fehler beim Offline-Speichern: " + offlineError.message, "error");
             }
         } else {
-             showFeedback("Ein Fehler ist aufgetreten: " + error.message, "error");
+            showFeedback("Ein Fehler ist aufgetreten: " + (error.message || error), "error");
         }
         console.error("Fehler bei der Beitragsverarbeitung:", error);
     } finally {
@@ -141,19 +399,16 @@ document.getElementById('news-form').addEventListener('submit', async function(e
     }
 });
 
-
-// DATEN-SYNCHRONISATION & ONLINE SENDEN (angepasst für mehrere Fotos)
-// ===================================================================
+/* -----------------------
+   Sync Offline Beiträge
+   ----------------------- */
 async function speichereBeitragOffline(beitrag, fotosAlsBase64) {
     try {
         let offlineBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
-        // Speichere das Array mit den Base64-Strings
         offlineBeitraege.push({ id: 'beitrag_' + Date.now(), data: beitrag, fotos: fotosAlsBase64 });
         localStorage.setItem('offlineBeitraege', JSON.stringify(offlineBeitraege));
     } catch (e) {
-        if (e.name === 'QuotaExceededError') {
-            throw new Error("Der lokale Speicher ist voll. Bitte sende zuerst die gespeicherten Beiträge.");
-        }
+        if (e.name === 'QuotaExceededError') throw new Error("Der lokale Speicher ist voll. Bitte sende zuerst die gespeicherten Beiträge.");
         throw e;
     }
 }
@@ -162,13 +417,10 @@ async function syncOfflineBeitraege() {
     let offlineBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
     if (navigator.onLine && offlineBeitraege.length > 0) {
         showFeedback(`Sende ${offlineBeitraege.length} gespeicherte(n) Beitrag...`, "success");
-
         for (const offlineBeitrag of [...offlineBeitraege]) {
             try {
-                // Konvertiere das Array von Base64-Strings in ein Array von Blobs
                 const fotosAlsBlobs = offlineBeitrag.fotos.map(b64 => dataURLtoBlob(b64));
                 await sendeBeitragOnline(offlineBeitrag.data, fotosAlsBlobs);
-                
                 let aktuelleBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
                 let aktualisierteListe = aktuelleBeitraege.filter(b => b.id !== offlineBeitrag.id);
                 localStorage.setItem('offlineBeitraege', JSON.stringify(aktualisierteListe));
@@ -179,87 +431,37 @@ async function syncOfflineBeitraege() {
             }
         }
         let restlicheBeitraege = JSON.parse(localStorage.getItem('offlineBeitraege')) || [];
-        if (restlicheBeitraege.length === 0) {
-           showFeedback("Alle gespeicherten Beiträge wurden erfolgreich gesendet!", "success");
-        }
+        if (restlicheBeitraege.length === 0) showFeedback("Alle gespeicherten Beiträge wurden erfolgreich gesendet!", "success");
     }
 }
 
 async function sendeBeitragOnline(beitrag, fotosAlsBlobs) {
     const formData = new FormData();
-
-    // Füge alle Textdaten hinzu
-    for (const key in beitrag) {
-        formData.append(key, beitrag[key]);
-    }
-    
-    // Füge jede Bild-Blob-Datei hinzu. Wichtig ist 'fotos[]', damit PHP es als Array erkennt.
+    for (const key in beitrag) formData.append(key, beitrag[key] || '');
     fotosAlsBlobs.forEach((blob, index) => {
-        formData.append('fotos[]', blob, `foto${index}.jpg`);
+        const fileName = blob.name || `foto${index}.jpg`;
+        formData.append('fotos[]', blob, fileName);
     });
 
-    const serverUrl = 'save_post.php'; 
-    const response = await fetch(serverUrl, {
-        method: 'POST',
-        body: formData
-    });
-
-    if (!response.ok) {
-        throw new Error('Server antwortet mit einem Fehler (Status: ' + response.status + ')');
-    }
-
+    // TODO: Passen: URL auf deine Server-Endpoint
+    const serverUrl = 'save_post.php';
+    const response = await fetch(serverUrl, { method: 'POST', body: formData });
+    if (!response.ok) throw new Error('Server antwortet mit einem Fehler (Status: ' + response.status + ')');
     const ergebnis = await response.json();
-    if (ergebnis.status !== 'success') {
-        throw new Error(ergebnis.message || 'Unbekannter Serverfehler.');
-    }
+    if (ergebnis.status !== 'success') throw new Error(ergebnis.message || 'Unbekannter Serverfehler.');
 }
 
-// RESTLICHE HILFSFUNKTIONEN (bleiben gleich)
-// ==========================================
-function showFeedback(message, type, clear = false) { /* ... unverändert ... */ }
-function showRescanInstructions() { /* ... unverändert ... */ }
-window.addEventListener('online', syncOfflineBeitraege);
+/* -----------------------
+   Event-Handler verbinden
+   ----------------------- */
+document.getElementById('live-cam-button').addEventListener('click', startCamera);
+document.getElementById('close-camera-button').addEventListener('click', closeCamera);
+document.getElementById('capture-button').addEventListener('click', capturePhoto);
+document.getElementById('confirm-selection-button').addEventListener('click', confirmPhotoSelection);
 
-
-// Implementierung der fehlenden Funktionen (damit der Code kopierbar ist)
-function resizeImage(file, maxWidth = 1920) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = (event) => {
-            const img = new Image();
-            img.src = event.target.result;
-            img.onload = () => {
-                if (img.width <= maxWidth) {
-                    resolve(img.src);
-                    return;
-                }
-                const canvas = document.createElement('canvas');
-                const scaleFactor = maxWidth / img.width;
-                canvas.width = maxWidth;
-                canvas.height = img.height * scaleFactor;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                resolve(canvas.toDataURL('image/jpeg', 0.85));
-            };
-            img.onerror = reject;
-        };
-        reader.onerror = reject;
-    });
-}
-
-function dataURLtoBlob(dataurl) {
-    const arr = dataurl.split(',');
-    const mime = arr[0].match(/:(.*?);/)[1];
-    const bstr = atob(arr[1]);
-    let n = bstr.length;
-    const u8arr = new Uint8Array(n);
-    while (n--) {
-        u8arr[n] = bstr.charCodeAt(n);
-    }
-    return new Blob([u8arr], { type: mime });
-}
-
+/* -----------------------
+   Seiteninitialisierung (Event-ID prüfen)
+   ----------------------- */
 window.addEventListener('load', async function() {
     const urlParams = new URLSearchParams(window.location.search);
     const eventId = urlParams.get('eventId');
@@ -275,13 +477,13 @@ window.addEventListener('load', async function() {
         if (!response.ok) throw new Error("Server-Kommunikation fehlgeschlagen.");
         const data = await response.json();
         if (data.status === 'success') {
-            officialEventTitle = data.eventTitel;
+            officialEventTitle = data.eventTitel || eventId;
             document.getElementById('event-title').innerText = officialEventTitle;
             loadingView.classList.add('hidden');
             contentView.classList.remove('hidden');
             syncOfflineBeitraege();
         } else {
-            showFeedback(data.message, "error");
+            showFeedback(data.message || 'Event konnte nicht gefunden werden.', "error");
             loadingView.classList.add('hidden');
         }
     } catch (error) {
@@ -291,33 +493,10 @@ window.addEventListener('load', async function() {
     }
 });
 
-function showFeedback(message, type, clear = false) {
-    const feedbackMessage = document.getElementById('feedback-message');
-    const rescanButton = document.getElementById('rescan-button');
-    if (clear) {
-        feedbackMessage.classList.add('hidden');
-        rescanButton.classList.add('hidden');
-        return;
-    }
-    feedbackMessage.textContent = message;
-    feedbackMessage.className = `feedback ${type}`;
-    feedbackMessage.classList.remove('hidden');
-    if (type === 'error') {
-        rescanButton.classList.remove('hidden');
-    } else {
-        rescanButton.classList.add('hidden');
-    }
-}
-
-function showRescanInstructions() {
-    document.getElementById('loading-view').classList.add('hidden');
-    document.getElementById('content-view').classList.add('hidden');
-    document.getElementById('feedback-message').classList.add('hidden');
-    document.getElementById('rescan-button').classList.add('hidden');
-    document.getElementById('rescan-view').classList.remove('hidden');
-}
-
+/* -----------------------
+   Online-Event für automatische Sync
+   ----------------------- */
+window.addEventListener('online', syncOfflineBeitraege);
 </script>
-
 </body>
 </html>
